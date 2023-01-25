@@ -1,0 +1,166 @@
+// login.js
+const https = require('https'); // Required for sending a request to the server for login
+const jwt = require('jsonwebtoken'); // Required for generating the JWT token
+const crypto = require('crypto'); // Required for hashing the JWT token
+const generateJWT = require('./generatejwt'); // Required for generating the JWT token
+
+const login = (username, password) => { // Function for handling the login process
+    return new Promise((resolve, reject) => { // Returns a promise for handling success and error cases
+        // Send a request to the server to check if the login credentials are valid
+        const postData = JSON.stringify({
+            username: username,
+            password: password
+        });
+        const options = {
+            hostname: 'yourserver.com', // The hostname of the server
+            port: 443, // The port number of the server
+            path: '/api/login', // The path for the login route
+            method: 'POST', // The request method
+            headers: {
+                'Content-Type': 'application/json', // The content type of the request
+                'Content-Length': postData.length // The length of the request data
+            }
+        };
+        const req = https.request(options, (res) => { // Send the request
+            res.on('data', (d) => { // Handle the response
+                const json = JSON.parse(d);
+                if (json.error) {
+                    reject(new Error(json.error)); // Reject the promise with an error message
+                } else {
+                    // If the login is successful, generate a new JWT token for the user
+                    generateJWT.generateJWT({username: username}).then(token => {
+                        resolve(token); // Resolve the promise with the JWT token
+                    }).catch(err => {
+                        reject(err); // Reject the promise with an error
+                    });
+                }
+            });
+        });
+        req.on('error', (e) => {
+            reject(e); // Reject the promise with an error
+        });
+        req.write(postData);
+        req.end();
+    });
+}
+module.exports = { login }; // Export the login function for use in other files
+
+
+
+----------------------------------------------------------------------------------
+
+generateJWT -- with unique secret key
+
+// generatejwt.js
+const crypto = require('crypto'); // Required for hashing the JWT token
+
+const generateJWT = (payload) => {
+    return new Promise((resolve, reject) => {
+        // Fetch a unique secret key for the user from the server
+        https.get('https://yourserver.com/api/secret', (res) => { // Send a request to the server to get the unique secret key
+            res.on('data', (secret) => { // Handle the response
+                // Set the expiration time for the JWT token (e.g. 1 hour)
+                const expiresIn = '1h';
+                // Generate the JWT token using the user's unique secret key
+                const token = jwt.sign(payload, secret, { expiresIn });
+                // Hash the token using sha-256
+                crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)).then(tokenHash => {
+                    const tokenHashArray = Array.from(new Uint8Array(tokenHash));
+                    const hashedToken = tokenHashArray.map((byte) => byte.toString(16).padStart(2, "0")).join("");
+                    resolve(hashedToken); // Resolve the promise with the hashed JWT token
+                }).catch(err => {
+                    reject(err); // Reject the promise with an error
+                });
+            });
+        });
+    });
+}
+module.exports = { generateJWT }; // Export the generateJWT function for use in other files
+
+
+
+-----------------------------------------------------------------------------------------
+
+
+Server.js
+
+
+// server.js
+const https = require('https'); // Required for creating the server
+const login = require('./login'); // Required for handling login requests
+const register = require('./register'); // Required for handling registration requests
+
+https.createServer((req, res) => { // Create the server
+    if (req.url === '/login' && req.method === 'POST') { // If the request is for the login route and method is POST
+        let data = '';
+        req.on('data', (chunk) => { // Handle the request data
+            data += chunk;
+        });
+        req.on('end', () => {
+            const { username, password } = JSON.parse(data);
+            login.login(username, password) // Call the login function
+                .then(token => {
+                    res.end(JSON.stringify({ token })); // Send the JWT token in the response
+                })
+                .catch(err => {
+                    res.statusCode = 401; // Set the status code to 401 (Unauthorized)
+                    res.end(JSON.stringify({ error: err.message })); // Send the error message in the response
+                });
+
+        });
+    } else if (req.url === '/register' && req.method === 'POST') { // If the request is for the registration route and method is POST
+        let data = '';
+        req.on('data', (chunk) => { // Handle the request data
+            data += chunk;
+        });
+        req.on('end', () => {
+            const { username, password, email } = JSON.parse(data);
+            register.register(username, password, email) // Call the register function
+                .then(token => {
+                    res.end(JSON.stringify({ token })); // Send the JWT token in the response
+                })
+                .catch(err => {
+                    res.statusCode = 401; // Set the status code to 401 (Unauthorized)
+                    res.end(JSON.stringify({ error: err.message })); // Send the error message in the response
+                });
+        });
+    } else { // If the request is for any other route or method
+        res.statusCode = 404; // Set the status code to 404 (Not Found)
+        res.end();
+    }
+}).listen(3000); // Listen on port 3000
+console.log('Server running on port 3000');
+
+
+As you can see, the server.js file is handling the requests and routes for login and registration. It listens for requests on port 3000 and checks the URL and method of the request. If the request is for the login or registration routes and the method is POST, it calls the corresponding function (login or register) and handles the response. If the request is for any other route or method, it returns a 404 status code.
+It's important to note that this is just an example and you should adjust the code to fit your specific requirements and use a real secret key for generating the JWT token and also use a real database for storing the user's information.
+
+------------------------------------------------------
+
+generatejwtlogout -- witout secrekey
+
+------------------------------------------------------------
+
+generateJWT with static secret key:
+
+// generatejwt.js
+const crypto = require('crypto'); // Required for hashing the JWT token
+const secret = "yoursecretkey"; // Use a static secret key for all users
+
+const generateJWT = (payload) => {
+    return new Promise((resolve, reject) => {
+        // Set the expiration time for the JWT token (e.g. 1 hour)
+        const expiresIn = '1h';
+        // Generate the JWT token using the secret key
+        const token = jwt.sign(payload, secret, { expiresIn });
+        // Hash the token using sha-256
+        crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)).then(tokenHash => {
+            const tokenHashArray = Array.from(new Uint8Array(tokenHash));
+            const hashedToken = tokenHashArray.map((byte) => byte.toString(16).padStart(2, "0")).join("");
+            resolve(hashedToken); // Resolve the promise with the hashed JWT token
+        }).catch(err => {
+            reject(err); // Reject the promise with an error
+        });
+    });
+}
+module.exports = { generateJWT }; // Export the generateJWT function for use in other files
